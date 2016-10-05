@@ -20,24 +20,15 @@ import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
-import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.swing.JOptionPane;
 import javax.swing.JPasswordField;
 import javax.swing.table.TableModel;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x509.AttributeCertificate;
 import org.bouncycastle.asn1.x509.AttributeCertificateInfo;
-import org.bouncycastle.asn1.x509.X509Name;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import static sun.security.krb5.Confounder.bytes;
 
 /**
  *
@@ -225,7 +216,8 @@ public class PrincipalFrame extends javax.swing.JFrame {
             txtLog.append("Carregando carteirinhas...\n");
             // Carrega carteirinhas da api
             JSONObject json = RemoteHttp.getCarteirinhas(token);
-            JSONArray carteirinhas = json.getJSONArray("carteirinhas");            
+            JSONObject entidade = json.getJSONObject("entidade");
+            JSONArray carteirinhas = entidade.getJSONArray("carteirinhas");            
             progresbar.setValue(progresbar.getValue()+10);
             
             // Cria JSONArray para enviar certificados 
@@ -239,7 +231,8 @@ public class PrincipalFrame extends javax.swing.JFrame {
                 JSONObject carteirinha = (JSONObject) it.next();
                 // Cria certificado
                 AttributeCertificate ca = createCertificado(certificado, 
-                        chavePrivada, carteirinha);
+                        chavePrivada, carteirinha, entidade.getString("auth_info_access"),
+                        entidade.getString("crl_dist_points"));
                 JSONObject cert = new JSONObject();
                 cert.put("carteirinha_id", carteirinha.getLong("id"));
                 cert.put("certificado", GCABase64.encode(ca.getEncoded()));                              
@@ -292,8 +285,10 @@ public class PrincipalFrame extends javax.swing.JFrame {
     }
     
     private AttributeCertificate createCertificado(X509Certificate certificado, 
-                                PrivateKey privKey, JSONObject carteirinha){ 
+                                PrivateKey privKey, JSONObject carteirinha, 
+                                String auth_info_access, String crl_dist_point){ 
         try {
+            
             // Configura atributos para OID1
             AttributeContentOID1 content1 = new AttributeContentOID1();
             content1.setCpf(carteirinha.getString("cpf"));
@@ -305,11 +300,11 @@ public class PrincipalFrame extends javax.swing.JFrame {
             
             // Configura atributos para OID2
             AttributeContentOID2 content2 = new AttributeContentOID2();
-            content2.setCityInstEnsino(carteirinha.getString("cidade_inst_ensino"));
+            content2.setCityAndUfInstEnsino(carteirinha.getString("cidade_inst_ensino")
+                    .concat(carteirinha.getString("uf_inst_ensino")));
             content2.setCourseName(carteirinha.getString("curso_serie"));
             content2.setEscolaridade(carteirinha.getString("escolaridade"));
             content2.setInstEnsino(carteirinha.getString("instituicao_ensino"));
-            content2.setUfInstEnsino(carteirinha.getString("uf_inst_ensino"));
             
             // Configura campos do certificado
             StudentACInfoGenerator info = new StudentACInfoGenerator();
@@ -320,7 +315,7 @@ public class PrincipalFrame extends javax.swing.JFrame {
             info.setNotBefore((new SimpleDateFormat("yyyy-MM-dd"))
                     .parse(carteirinha.getString("nao_antes")));
             info.addMandatoryExtensions(certificado.getPublicKey(), 
-                    "http://teste.com.br/validacao", "http://teste.com.br/validacao");
+                    auth_info_access, crl_dist_point);
             info.addAttributes(content1, content2);
             
             AttributeCertificateInfo caInfo = info.generateAttributeCertificateInfo();
